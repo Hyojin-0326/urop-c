@@ -24,13 +24,26 @@ int DataLoader::RGBLoader(const LoaderParams& param){
         rgb_stream.close();
     } else {
         std::cerr << "RGB 데이터를 읽을 수 없습니다." << std::endl;
+        return -1;
     }
 }
 
 
 
 int DataLoader::DepthLoader(const LoaderParams& param){
-    return -1;
+    int num_frames = param.num_frames;
+    int width = param.width;
+    int height = param.height;
+
+    std::vector<float> depth_data(num_frames * width * height);
+    std::ifstream depth_stream(depth_data, std::ios::binary);
+    if (depth_stream.is_open()) {
+        depth_stream.read(reinterpret_cast<char*>(depth_data.data()), depth_data.size() * sizeof(float));
+        depth_stream.close();
+    } else {
+        std::cerr << "Depth 데이터를 읽을 수 없습니다!" << std::endl;
+        return -1;
+    }  
 }
 
 
