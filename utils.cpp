@@ -9,21 +9,28 @@
 using namespace Eigen; 
 
 
+
 // -- 데이터 받아오기(임시임), 아직안만듦1!!!1!!!!!!!1-- 
-int RgbLoader(){
-    std::vector<unsigned char> rgb_data(num_frames * width * height * 3);
-    std::ifstream rgb_stream(rgb_file, std::ios::binary);
+int DataLoader::RGBLoader(const LoaderParams& param){
+        int num_frames = param.num_frames;
+        int width = param.width;
+        int height = param.height;
+
+    rgb_data.resize(num_frames * width * height * 3);
+    std::ifstream rgb_stream(rgb_data, std::ios::binary);
+    
     if (rgb_stream.is_open()) {
         rgb_stream.read(reinterpret_cast<char*>(rgb_data.data()), rgb_data.size());
         rgb_stream.close();
     } else {
-        std::cerr << "RGB 데이터를 읽을 수 없습니다!" << std::endl;
-        return 1;
+        std::cerr << "RGB 데이터를 읽을 수 없습니다." << std::endl;
     }
 }
 
-int DepthLoader(){
 
+
+int DataLoader::DepthLoader(const LoaderParams& param){
+    return -1;
 }
 
 

@@ -5,7 +5,6 @@
 #include <Eigen/Dense>
 #include <iostream>
 #include <fstream>
-#include <vector>
 #include <string>
 
 using namespace Eigen;
@@ -17,6 +16,13 @@ struct preprocessParams{
     int k=10;
     float voxelSize=0.05f;
 };
+
+struct LoaderParams{
+    int width = 640;
+    int height = 480;
+    int num_frames;
+    LoaderParams(int frames): num_frames(frames){}
+    };
 
 // 포인트 구조체 (포인트 위치, 법선, ground 여부 플래그)
 struct Point {
@@ -62,6 +68,17 @@ void preprocessPointCloud(std::vector<Point>& points, const preprocessParams& pa
 #define STR_EXPAND(tok) #tok
 #define STR(tok) STR_EXPAND(tok)
 
+
+class RgbLoader{
+    public: RgbLoader(const LoaderParams& param);
+    private:
+        int num_frames;
+        int width;
+        int height;
+        std::vector<unsigned char> rgb_data;
+        std::string rgb_file;
+};
+
 class DataLoader{
 
     private:
@@ -76,12 +93,6 @@ class DataLoader{
         rgb_data(data_dir + "/rgb_data.bin"),
         depth_data(data_dir + "/depth_data.bin"),
         meta_file(data_dir + "/meta.txt"){}
-    
-        struct DataParams{
-            int num_frames
-            
-        };
-
 
         string getCurrentDir(){
             string fullPath = STR(__FILE__);
@@ -101,10 +112,12 @@ class DataLoader{
                 std::cerr<<"메타데이터 파일을 읽을 수 없음."<<endl;
                 return 1;
             }
-
-
         }
 
+        int RGBLoader(const LoaderParams& param);
+
+        int DepthLoader(const LoaderParams& param);
+        
 };
 
 
