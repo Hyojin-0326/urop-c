@@ -10,41 +10,78 @@ using namespace Eigen;
 
 
 
-// -- 데이터 받아오기(임시임), 아직안만듦1!!!1!!!!!!!1-- 
-int DataLoader::RGBLoader(const LoaderParams& param){
+// -- 데이터 받아오기(임시임) -- 
+int DataLoader::RGBLoader(const LoaderParams& param, vector<uint8_t>& rgb_buffer){
         int num_frames = param.num_frames;
         int width = param.width;
         int height = param.height;
 
-    rgb_data.resize(num_frames * width * height * 3);
+    rgb_buffer.resize(num_frames * width * height * 3);
     std::ifstream rgb_stream(rgb_data, std::ios::binary);
     
     if (rgb_stream.is_open()) {
-        rgb_stream.read(reinterpret_cast<char*>(rgb_data.data()), rgb_data.size());
+        rgb_stream.read(reinterpret_cast<char*>(rgb_buffer.data()), rgb_buffer.size()); 
         rgb_stream.close();
     } else {
         std::cerr << "RGB 데이터를 읽을 수 없습니다." << std::endl;
         return -1;
     }
+    return 0;
 }
 
 
 
-int DataLoader::DepthLoader(const LoaderParams& param){
+int DataLoader::DepthLoader(const LoaderParams& param, vector<uint8_t>& depth_buffer){
     int num_frames = param.num_frames;
     int width = param.width;
     int height = param.height;
 
-    std::vector<float> depth_data(num_frames * width * height);
+    depth_buffer.resize(num_frames * width * height);
     std::ifstream depth_stream(depth_data, std::ios::binary);
     if (depth_stream.is_open()) {
-        depth_stream.read(reinterpret_cast<char*>(depth_data.data()), depth_data.size() * sizeof(float));
+        depth_stream.read(reinterpret_cast<char*>(depth_buffer.data()), depth_buffer.size() * sizeof(float)); 
         depth_stream.close();
     } else {
-        std::cerr << "Depth 데이터를 읽을 수 없습니다!" << std::endl;
+        std::cerr << "Depth 데이터를 읽을 수 없습니다." << std::endl;
         return -1;
     }  
+    return 0;
 }
+
+void DataLoader::PlayVideo(const LoaderParams& param) {
+    int width = param.width;
+    int height = param.height;
+    int num_frames = param.num_frames;
+
+    std::vector<uint8_t> rgb_buffer;
+    std::vector<float> depth_buffer;
+
+    // 데이터 로딩 체크
+    if (RGBLoader(param, rgb_buffer) == -1 || DepthLoader(param, depth_buffer) == -1) {
+        std::cerr << "데이터 로딩 실패!" << std::endl;
+        return;
+    }
+
+    for (int i = 0; i < num_frames; i++) {
+        cv::Mat rgb_image(height, width, CV_8UC3, &rgb_buffer[i * width * height * 3]);
+        cv::Mat depth_image(height, width, CV_32FC1, &depth_buffer[i * width * height]);
+
+        cv::Mat depth_vis;
+        depth_image.convertTo(depth_vis, CV_8UC1, 255.0 / 1000.0);
+        cv::applyColorMap(depth_vis, depth_vis, cv::COLORMAP_JET);
+
+        cv::imshow("RGB Video", rgb_image);
+        cv::imshow("Depth Video", depth_vis);
+
+        if (cv::waitKey(30) == 'q') {
+            break;
+        }
+    }
+
+    cv::destroyAllWindows();
+}
+
+
 
 
 

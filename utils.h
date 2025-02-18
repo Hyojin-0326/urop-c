@@ -114,9 +114,13 @@ class DataLoader{
             }
         }
 
-        int RGBLoader(const LoaderParams& param);
+        int RGBLoader(const LoaderParams& param, vector<uint8_t>& rgb_buffer);
 
-        int DepthLoader(const LoaderParams& param);
+        int DepthLoader(const LoaderParams& param, vector<uint8_t>& depth_buffer);
+
+        void PlayVideo(const LoaderParams& param);
+        vector<uint8_t> rgb_buffer;
+        vector<uint8_t> depth_buffer;
         
 };
 
