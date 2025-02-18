@@ -10,28 +10,57 @@ using namespace Eigen;
 
 
 
-// -- 데이터 받아오기(임시임) -- 
-int DataLoader::RGBLoader(const LoaderParams& param, vector<uint8_t>& rgb_buffer){
-        int num_frames = param.num_frames;
-        int width = param.width;
-        int height = param.height;
 
-    rgb_buffer.resize(num_frames * width * height * 3);
-    std::ifstream rgb_stream(rgb_data, std::ios::binary);
-    
-    if (rgb_stream.is_open()) {
-        rgb_stream.read(reinterpret_cast<char*>(rgb_buffer.data()), rgb_buffer.size()); 
-        rgb_stream.close();
-    } else {
-        std::cerr << "RGB 데이터를 읽을 수 없습니다." << std::endl;
+// // -- 데이터 받아오기(임시임) -- 
+int DataLoader::RGBLoader(const LoaderParams& param, vector<unsigned char>& rgb_buffer) {
+    int num_frames = param.num_frames;
+    int width = param.width;
+    int height = param.height;
+
+    // 디버깅용: RGB 파일 경로 출력
+    std::cout << "🔍 RGB 파일 경로: " << rgb_data << std::endl;
+
+    // 파일 존재 여부 확인
+    std::ifstream test_file(rgb_data);
+    if (!test_file) {
+        std::cerr << "❌ 파일이 존재하지 않음: " << rgb_data << std::endl;
         return -1;
     }
+    test_file.close();
+
+    // 파일 크기 확인
+    std::ifstream rgb_stream(rgb_data, std::ios::binary | std::ios::ate);
+    if (!rgb_stream.is_open()) {
+        std::cerr << "❌ RGB 데이터를 읽을 수 없습니다." << std::endl;
+        return -1;
+    }
+
+    std::streamsize file_size = rgb_stream.tellg();
+    rgb_stream.seekg(0, std::ios::beg);
+
+    std::cout << "📏 RGB 파일 크기: " << file_size << " bytes" << std::endl;
+
+    // 예상 파일 크기와 비교
+    std::streamsize expected_size = num_frames * width * height * 3;
+    if (file_size != expected_size) {
+        std::cerr << "⚠️ 예상 파일 크기와 다름! 예상: " << expected_size
+                  << " bytes, 실제: " << file_size << " bytes" << std::endl;
+        return -1;
+    }
+
+    // RGB 데이터 읽기
+    rgb_buffer.resize(expected_size);
+    rgb_stream.read(reinterpret_cast<char*>(rgb_buffer.data()), expected_size);
+    rgb_stream.close();
+
+    std::cout << "✅ RGB 데이터 로딩 완료! 총 " << num_frames << " 프레임" << std::endl;
     return 0;
 }
 
 
 
-int DataLoader::DepthLoader(const LoaderParams& param, vector<uint8_t>& depth_buffer){
+
+int DataLoader::DepthLoader(const LoaderParams& param, vector<float>& depth_buffer){
     int num_frames = param.num_frames;
     int width = param.width;
     int height = param.height;
@@ -81,10 +110,98 @@ void DataLoader::PlayVideo(const LoaderParams& param) {
     cv::destroyAllWindows();
 }
 
+// --- 포인트 클라우드 생성 ---
+std::vector<Point> generatePointCloud(const std::vector<uint8_t>& rgb, const std::vector<float>& depth, const LoaderParams& param) {
+    std::vector<Point> points;
+    
+    for (int y = 0; y < param.height; y++) {
+        for (int x = 0; x < param.width; x++) {
+            int idx = y * param.width + x;
+            float d = depth[idx]; 
+            if (d <= 0 || d > 5.0f) continue;
+
+            float X = (x - param.width / 2) * d / 525.0f;
+            float Y = (y - param.height / 2) * d / 525.0f;
+            float Z = d;
+
+            // ✅ RGB 색상 추가 (RGB 데이터는 3채널이므로 idx * 3 사용)
+            int rgb_idx = idx * 3;
+            float R = rgb[rgb_idx] / 255.0f;
+            float G = rgb[rgb_idx + 1] / 255.0f;
+            float B = rgb[rgb_idx + 2] / 255.0f;
+
+            points.push_back({Eigen::Vector3f(X, Y, Z), Eigen::Vector3f(0, 0, 0), Eigen::Vector3f(R, G, B), false});
+        }
+    }
+    return points;
+}
 
 
+// --- VoxelGrid 기반 공간 분할 ---
+VoxelGrid::VoxelGrid(const std::vector<Point>& points, float voxelSize) : voxelSize(voxelSize) {
+    for (size_t i = 0; i < points.size(); i++) {
+        int ix = static_cast<int>(std::floor(points[i].position.x() / voxelSize));
+        int iy = static_cast<int>(std::floor(points[i].position.y() / voxelSize));
+        int iz = static_cast<int>(std::floor(points[i].position.z() / voxelSize));
+        size_t key = (ix * 73856093) ^ (iy * 19349663) ^ (iz * 83492791); // 해시 함수
+        grid[key].push_back(static_cast<int>(i));
+    }
+}
+
+// --- Ground Plane 제거 ---
+void preprocessPointCloud(std::vector<Point>& points, float voxelSize, int k, float threshold) {
+    VoxelGrid grid(points, voxelSize);
+    float searchRadius = voxelSize * 1.5f;
+
+    #pragma omp parallel for
+    for (int i = 0; i < static_cast<int>(points.size()); i++) {
+        Point& pt = points[i];
+        std::vector<int> neighbors = grid.getKNN(pt.position, k, searchRadius, points);
+        if (neighbors.size() < static_cast<size_t>(k)) {
+            pt.isGround = false;
+            continue;
+        }
+
+        Matrix3f covariance = Matrix3f::Zero();
+        Vector3f mean = Vector3f::Zero();
+        for (int idx : neighbors) mean += points[idx].position;
+        mean /= neighbors.size();
+
+        for (int idx : neighbors) {
+            Vector3f diff = points[idx].position - mean;
+            covariance += diff * diff.transpose();
+        }
+        covariance /= neighbors.size();
+
+        Eigen::SelfAdjointEigenSolver<Eigen::Matrix3f> solver(covariance);
+        Vector3f normal = solver.eigenvectors().col(0);
+
+        if (normal.dot(Vector3f(0, 0, 1)) < 0) normal = -normal;
+        pt.normal = normal;
+        pt.isGround = (normal.dot(Vector3f(0, 0, 1)) > threshold);
+    }
+
+    points.erase(std::remove_if(points.begin(), points.end(), [](const Point& p) { return p.isGround; }), points.end());
+}
+
+// --- 시각화 ---
+void visualizePointCloud(const std::vector<Point>& points, const LoaderParams& param) {
+    cv::Mat display(param.height, param.width, CV_8UC3, cv::Scalar(0, 0, 0));
+    for (const auto& p : points) {
+        int x = static_cast<int>(p.position.x() * 100 + param.width / 2);
+        int y = static_cast<int>(p.position.y() * 100 + param.height / 2);
+        if (x >= 0 && x < param.width && y >= 0 && y < param.height) {
+            display.at<cv::Vec3b>(y, x) = cv::Vec3b(255, 255, 255);
+        }
+    }
+    cv::imshow("PointCloud", display);
+    cv::waitKey(0);
+    cv::destroyAllWindows();
+}
+// ///////////////////
 
 
+/////////////////////////////////////////////////////////////////
 // --- 내부 헬퍼 함수 ---
 // voxel 좌표 (ix, iy, iz)를 하나의 key로 변환 (간단한 해시 함수)
 namespace {
@@ -212,3 +329,4 @@ void preprocessPointCloud(std::vector<Point>& points, const preprocessParams& pa
         points.end()
     );
 }
+//////////////////////////////////////////////////////////////////
