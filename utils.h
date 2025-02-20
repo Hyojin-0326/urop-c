@@ -75,7 +75,7 @@ public:
     std::string meta_file;
     
     DataLoader()
-        : data_dir(getCurrentDir() + "/../urop/data"),
+        : data_dir(getCurrentDir() + "/home/hjkwon/urop-c/data"),
           rgb_data(data_dir + "/rgb_data.bin"),
           depth_data(data_dir + "/depth_data.bin"),
           meta_file(data_dir + "/meta.txt") {}
